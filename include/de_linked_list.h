@@ -16,7 +16,7 @@ behaviour will not change
 #ifdef DE_CONTAINER_LLIST_OPTIONS
 /* no options */
 #define DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
-#define DE_OPTIONS_LLIST_MALLOC_FUNCTION defaults to malloc from stdlib.h
+#define DE_OPTIONS_LLIST_MALLOC_FUNCTION defaults to malloc from stdlib.h this header assuemes malloc wont fail
 #define DE_OPTIONS_LLIST_FREE_FUNCTION defaults to free from stdlib.h
 #define DE_OPTIONS_LLIST_MEMCPY_FUNCTION defaults to memcpy from string.h
 #define DE_OPTIONS_LLIST_ASSERT_FUNCTION defaults to assert from assert.h
@@ -82,8 +82,8 @@ DE_CONTAINER_LLIST_API u0 de_llist_insert_mv(de_llist* const _ll, const usize _i
 DE_CONTAINER_LLIST_API usize de_llist_info_size(de_llist* const _ll);
 DE_CONTAINER_LLIST_API usize de_llist_info_item_size(de_llist* const _ll);
 
-DE_CONTAINER_LLIST_API de_llist_node* de_llist_begin(de_llist* _ll);
-DE_CONTAINER_LLIST_API de_llist_node* de_llist_end(de_llist* _ll); // maybe NULL
+DE_CONTAINER_LLIST_API de_llist_node* de_llist_head(de_llist* _ll);
+DE_CONTAINER_LLIST_API de_llist_node* de_llist_tail(de_llist* _ll); // maybe NULL
 
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_next(de_llist_node* _node);
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_prev(de_llist_node* _node);
@@ -241,37 +241,231 @@ DE_CONTAINER_LLIST_INTERNAL u0 *de_llist_get_back(de_llist *const _ll) { //
 }
 
 /* memcpys data */
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_back(de_llist *const _ll, const void *const _data) { //
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_back(de_llist *const _ll, const void *const _data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+#endif
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* allocate and copy payload */
+  node->data = DE_C_LL_MALLOC(_ll->item_size);
+  DE_C_LL_MEMCPY(node->data, _data, _ll->item_size);
+
+  /* link node */
+  node->next = NULL;
+  node->prev = _ll->tail;
+
+  if (_ll->size == 0) {
+    /* empty list: head and tail point to the new node */
+    _ll->head = node;
+    _ll->tail = node;
+  } else {
+    /* append after current tail */
+    _ll->tail->next = node;
+    _ll->tail = node;
+  }
+
+  ++_ll->size;
 }
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_front(de_llist *const _ll, const void *const _data) { //
+
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_front(de_llist *const _ll, const void *const _data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+#endif
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* allocate and copy payload */
+  node->data = DE_C_LL_MALLOC(_ll->item_size);
+  DE_C_LL_MEMCPY(node->data, _data, _ll->item_size);
+
+  /* link node at front */
+  node->prev = NULL;
+  node->next = _ll->head;
+
+  if (_ll->size == 0) {
+    /* empty list: head and tail point to the new node */
+    _ll->head = node;
+    _ll->tail = node;
+  } else {
+    /* insert before current head */
+    _ll->head->prev = node;
+    _ll->head = node;
+  }
+
+  ++_ll->size;
 }
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_insert(de_llist *const _ll, const usize _idx, const void *const _data) { //
+
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_insert(de_llist *const _ll, const usize _idx, const void *const _data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+  DE_C_LL_ASSERT(_idx <= _ll->size); /* allowed range: 0 .. size (inserting at size == push_back) */
+#endif
+
+  /* special cases: front or back */
+  if (_idx == 0) {
+    de_llist_push_front(_ll, _data);
+    return;
+  }
+  if (_idx == _ll->size) {
+    de_llist_push_back(_ll, _data);
+    return;
+  }
+
+  /* find node currently at index _idx and insert BEFORE it */
+  de_llist_node *target = de_llist_get_node(_ll, _idx);
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* allocate and copy payload */
+  node->data = DE_C_LL_MALLOC(_ll->item_size);
+  DE_C_LL_MEMCPY(node->data, _data, _ll->item_size);
+
+  /* link between target->prev and target */
+  node->next = target;
+  node->prev = target->prev;
+
+  if (target->prev != NULL) { target->prev->next = node; }
+  target->prev = node;
+
+  /* if we inserted at index 0 (shouldn't happen because handled above), update head */
+  if (_idx == 0) { _ll->head = node; }
+
+  ++_ll->size;
 }
 
 /* copies the data pointer, not the contents. Sets original pointer to NULL */
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_back_mv(de_llist *const _ll, void **_data) { //
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_back_mv(de_llist *const _ll, void **_data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+  DE_C_LL_ASSERT(*_data != NULL);
+#endif
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* move payload ownership into node */
+  node->data = *_data;
+  *_data = NULL;
+
+  /* link node */
+  node->next = NULL;
+  node->prev = _ll->tail;
+
+  if (_ll->size == 0) {
+    /* empty list: head and tail point to the new node */
+    _ll->head = node;
+    _ll->tail = node;
+  } else {
+    _ll->tail->next = node;
+    _ll->tail = node;
+  }
+
+  ++_ll->size;
 }
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_front_mv(de_llist *const _ll, void **_data) { //
+
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_push_front_mv(de_llist *const _ll, void **_data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+  DE_C_LL_ASSERT(*_data != NULL);
+#endif
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* move payload ownership into node */
+  node->data = *_data;
+  *_data = NULL;
+
+  /* link node at front */
+  node->prev = NULL;
+  node->next = _ll->head;
+
+  if (_ll->size == 0) {
+    _ll->head = node;
+    _ll->tail = node;
+  } else {
+    _ll->head->prev = node;
+    _ll->head = node;
+  }
+
+  ++_ll->size;
 }
-DE_CONTAINER_LLIST_INTERNAL u0 de_llist_insert_mv(de_llist *const _ll, const usize _idx, void **_data) { //
+
+DE_CONTAINER_LLIST_INTERNAL u0 de_llist_insert_mv(de_llist *const _ll, const usize _idx, void **_data) {
+#ifndef DE_OPTIONS_LLIST_NO_SAFETY_ASSERTS
+  DE_C_LL_ASSERT(_ll != NULL);
+  DE_C_LL_ASSERT(_data != NULL);
+  DE_C_LL_ASSERT(*_data != NULL);
+  DE_C_LL_ASSERT(_idx <= _ll->size); /* allowed: 0 .. size */
+#endif
+
+  /* special cases: front or back */
+  if (_idx == 0) {
+    de_llist_push_front_mv(_ll, _data);
+    return;
+  }
+  if (_idx == _ll->size) {
+    de_llist_push_back_mv(_ll, _data);
+    return;
+  }
+
+  /* target is the node currently at _idx; we will insert BEFORE it */
+  de_llist_node *target = de_llist_get_node(_ll, _idx);
+
+  /* allocate node */
+  de_llist_node *node = (de_llist_node *)DE_C_LL_MALLOC(sizeof(de_llist_node));
+
+  /* move payload ownership into node */
+  node->data = *_data;
+  *_data = NULL;
+
+  /* link between target->prev and target */
+  node->next = target;
+  node->prev = target->prev;
+
+  if (target->prev != NULL) {
+    target->prev->next = node;
+  } else {
+    /* inserting at head (shouldn't happen because _idx == 0 handled above) */
+    _ll->head = node;
+  }
+  target->prev = node;
+
+  ++_ll->size;
 }
 
 DE_CONTAINER_LLIST_INTERNAL usize de_llist_info_size(de_llist *const _ll) { //
+  return _ll->size;
 }
 DE_CONTAINER_LLIST_INTERNAL usize de_llist_info_item_size(de_llist *const _ll) { //
+  return _ll->item_size;
 }
 
-DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_begin(de_llist *_ll) { //
+DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_head(de_llist *_ll) { //
+  return _ll->head;
 }
-DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_end(de_llist *_ll) { //
-
+DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_tail(de_llist *_ll) { //
+  return _ll->tail;
 } // maybe NULL
 
 DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_next(de_llist_node *_node) { //
+  return _node->next;
 }
 DE_CONTAINER_LLIST_INTERNAL de_llist_node *de_llist_prev(de_llist_node *_node) { //
+  return _node->prev;
 }
 DE_CONTAINER_LLIST_INTERNAL u0 *de_llist_node_data(de_llist_node *_node) { //
+  return _node->data;
 }
 #ifdef __cplusplus
 } // extern "C"
