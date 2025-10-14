@@ -57,36 +57,61 @@ usize size;
 
 // basic api, will not be changed, but may be expanded in the future
 DE_CONTAINER_LLIST_API de_llist de_llist_create(const usize _item_size);
-DE_CONTAINER_LLIST_API u0 de_llist_destroy(de_llist* const _ll, de_llist_del_func _free_func);
+// deletes every node and clears the list. _free_func_or_NULL if provided will be called on every node to provide
+// a way to remove data. A free will be called on the original data, so the _item pointer in de_llist_del_func does not
+// need to be freed
+DE_CONTAINER_LLIST_API u0 de_llist_destroy(de_llist* const _ll, de_llist_del_func _free_func_or_NULL);
 
+/* removes the node at index _idx, returns the pointer to the value, the data needs to be freed manually*/
 DE_CONTAINER_LLIST_API u0 *de_llist_remove(de_llist* const _ll, const usize _idx);
+/* removes the node, returns the pointer to the value, the data needs to be freed manually*/
 DE_CONTAINER_LLIST_API u0 *de_llist_remove_node(de_llist* const _ll, de_llist_node* _node);
+/* removes the last node, returns the pointer to the value, the data needs to be freed manually*/
 DE_CONTAINER_LLIST_API u0 *de_llist_pop_back(de_llist* const _ll);
+/* removes the first node, returns the pointer to the value, the data needs to be freed manually*/
 DE_CONTAINER_LLIST_API u0 *de_llist_pop_front(de_llist* const _ll);
 
+/* returns data pointer of the node at index _idx */
 DE_CONTAINER_LLIST_API u0* de_llist_get(de_llist* const _ll, const usize _idx);
+/* returns data pointer of the node */
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_get_node(de_llist* const _ll, const usize _idx);
+/* returns data pointer of the first node */
 DE_CONTAINER_LLIST_API u0* de_llist_get_front(de_llist* const _ll);
+/* returns data pointer of the last node */
 DE_CONTAINER_LLIST_API u0* de_llist_get_back(de_llist* const _ll);
 
 /* memcpys data */
+
+/* appends a node, memcpy's _data into the node */
 DE_CONTAINER_LLIST_API u0 de_llist_push_back(de_llist* const _ll,const  void*const _data);
+/* prepends a node, memcpy's _data into the node */
 DE_CONTAINER_LLIST_API u0 de_llist_push_front(de_llist* const _ll, const void*const _data);
+/* inserts a node at index _idx, previous element at _idx will now reside at _idx + 1, memcpy's _data into the node */
 DE_CONTAINER_LLIST_API u0 de_llist_insert(de_llist* const _ll, const usize _idx,const void*const _data);
 
 /* copies the data pointer, not the contents. Sets original pointer to NULL */
+/* appends a node, transfers ownership of *_data to the list and sets it to NULL */
 DE_CONTAINER_LLIST_API u0 de_llist_push_back_mv(de_llist* const _ll, void** _data);
+/* prepends a node, transfers ownership of *_data to the list and sets it to NULL */
 DE_CONTAINER_LLIST_API u0 de_llist_push_front_mv(de_llist* const _ll, void** _data);
+/* inserts a node at index _idx, previous element at _idx will now reside at _idx + 1, transfers ownership of *_data to the list and sets it to NULL */
 DE_CONTAINER_LLIST_API u0 de_llist_insert_mv(de_llist* const _ll, const usize _idx, void** _data);
 
+/* returns the total amount of elements in the linked list */
 DE_CONTAINER_LLIST_API usize de_llist_info_size(de_llist* const _ll);
+/* returns the item size of the assigned data for each node */
 DE_CONTAINER_LLIST_API usize de_llist_info_item_size(de_llist* const _ll);
 
+/* returns the head node of the list*/
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_head(de_llist* _ll);
+/* returns the tail node of the list*/
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_tail(de_llist* _ll); // maybe NULL
 
+/* returns the next node, of none available returns NULL*/
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_next(de_llist_node* _node);
+/* returns the previous node, of none available returns NULL*/
 DE_CONTAINER_LLIST_API de_llist_node* de_llist_prev(de_llist_node* _node);
+/* returns the stored data* to an node*/
 DE_CONTAINER_LLIST_API u0* de_llist_node_data(de_llist_node* _node);
 
 /* clang-format on */
@@ -136,12 +161,20 @@ DE_CONTAINER_LLIST_INTERNAL u0 de_llist_destroy(de_llist *const _ll, de_llist_de
   DE_C_LL_ASSERT(_ll != NULL);
 #endif
 
-  if (_free_func_or_NULL == NULL) { _free_func_or_NULL = DE_C_LL_FREE; }
+  if (_free_func_or_NULL == NULL) {
+    for (de_llist_node *cur = _ll->head, *next; cur; cur = next) {
+      next = cur->next;
+      DE_C_LL_FREE(cur->data);
+      DE_C_LL_FREE(cur);
+    }
+  } else {
 
-  for (de_llist_node *cur = _ll->head, *next; cur; cur = next) {
-    next = cur->next;
-    _free_func_or_NULL(cur->data);
-    DE_C_LL_FREE(cur);
+    for (de_llist_node *cur = _ll->head, *next; cur; cur = next) {
+      next = cur->next;
+      _free_func_or_NULL(cur->data);
+      DE_C_LL_FREE(cur->data);
+      DE_C_LL_FREE(cur);
+    }
   }
 
   *_ll = (de_llist){0};
